@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-const UPRN = process.env.NEXT_PUBLIC_UPRN || "100080830667";
-
 interface Collection {
   type: string;
   serviceName: string;
@@ -39,20 +37,53 @@ const COLOURS: Record<string, { card: string; badge: string; dot: string }> = {
   },
 };
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", {
+const MONTH_INDEX: Record<string, number> = {
+  January: 0, February: 1, March: 2, April: 3,
+  May: 4, June: 5, July: 6, August: 7,
+  September: 8, October: 9, November: 10, December: 11,
+};
+
+// Parses the Veolia date format: "Tuesday, 7 July 2026"
+function parseVeoliaDate(str: string): Date | null {
+  const m = str.match(/\w+,\s+(\d+)\s+(\w+)\s+(\d{4})/);
+  if (!m) return null;
+  const month = MONTH_INDEX[m[2]];
+  if (month === undefined) return null;
+  return new Date(parseInt(m[3], 10), month, parseInt(m[1], 10));
+}
+
+function londonDateParts(date: Date): { y: number; mo: number; d: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)!.value, 10);
+  return { y: get("year"), mo: get("month"), d: get("day") };
+}
+
+function formatDate(veoliaStr: string): string {
+  const d = parseVeoliaDate(veoliaStr);
+  if (!d) return veoliaStr;
+  return d.toLocaleDateString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "long",
     day: "numeric",
     month: "long",
   });
 }
 
-function daysAway(iso: string): number {
+function daysAway(veoliaStr: string): number | null {
+  const target = parseVeoliaDate(veoliaStr);
+  if (!target) return null;
   const now = new Date();
-  const target = new Date(iso);
-  now.setHours(0, 0, 0, 0);
-  target.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - now.getTime()) / 86_400_000);
+  const np = londonDateParts(now);
+  const tp = londonDateParts(target);
+  const nowMs = Date.UTC(np.y, np.mo - 1, np.d);
+  const targetMs = Date.UTC(tp.y, tp.mo - 1, tp.d);
+  return Math.round((targetMs - nowMs) / 86_400_000);
 }
 
 function daysLabel(days: number): string {
@@ -67,7 +98,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/bins?uprn=${UPRN}`)
+    fetch("/api/bins")
       .then((r) => {
         if (!r.ok) throw new Error("Failed to load bin data");
         return r.json();
@@ -99,7 +130,7 @@ export default function Home() {
     collections
       ?.filter((c) => c.nextCollection)
       .map((c) => daysAway(c.nextCollection!))
-      .filter((d) => d >= 0)
+      .filter((d): d is number => d !== null && d >= 0)
       .reduce((min, d) => Math.min(min, d), Infinity) ?? Infinity;
 
   const banner =
@@ -158,7 +189,11 @@ export default function Home() {
           </div>
         )}
 
-        {displayCollections && (
+        {displayCollections && displayCollections.length === 0 && (
+          <p className="text-sm text-slate-500">No collections found.</p>
+        )}
+
+        {displayCollections && displayCollections.length > 0 && (
           <>
             <div className="flex flex-col gap-4">
               {displayCollections.map((c, i) => {
@@ -189,7 +224,7 @@ export default function Home() {
                           {formatDate(c.nextCollection)}
                         </p>
                         <p className="mt-0.5 text-sm font-medium opacity-80">
-                          {daysLabel(c.days!)}
+                          {c.days != null ? daysLabel(c.days) : ""}
                         </p>
                       </div>
                     ) : (
