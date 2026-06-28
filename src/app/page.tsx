@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BinType, BIN_META } from "@/lib/bins";
+import { daysAway } from "@/lib/date";
+import { BinCard } from "@/components/BinCard";
 
 interface Collection {
-  type: string;
+  type: BinType;
   serviceName: string;
   nextCollection: string | null;
-  lastCollection: string | null;
   schedule: string | null;
 }
 
@@ -14,71 +16,10 @@ interface DisplayCollection extends Collection {
   days: number | null;
 }
 
-const COLOURS: Record<string, { card: string; badge: string; dot: string }> = {
-  refuse: {
-    card: "bg-amber-800 text-white",
-    badge: "bg-amber-900 text-amber-100",
-    dot: "bg-amber-400",
-  },
-  recycling: {
-    card: "bg-green-700 text-white",
-    badge: "bg-green-800 text-green-100",
-    dot: "bg-green-300",
-  },
-  garden: {
-    card: "bg-green-400 text-green-950",
-    badge: "bg-green-500 text-green-950",
-    dot: "bg-green-200",
-  },
-  other: {
-    card: "bg-slate-600 text-white",
-    badge: "bg-slate-700 text-slate-100",
-    dot: "bg-slate-300",
-  },
-};
-
-function londonDateParts(date: Date): { y: number; mo: number; d: number } {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/London",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const get = (type: string) =>
-    parseInt(parts.find((p) => p.type === type)!.value, 10);
-  return { y: get("year"), mo: get("month"), d: get("day") };
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    timeZone: "Europe/London",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
-
-function daysAway(iso: string): number | null {
-  const target = new Date(iso);
-  if (isNaN(target.getTime())) return null;
-  const now = new Date();
-  const np = londonDateParts(now);
-  const tp = londonDateParts(target);
-  const nowMs = Date.UTC(np.y, np.mo - 1, np.d);
-  const targetMs = Date.UTC(tp.y, tp.mo - 1, tp.d);
-  return Math.round((targetMs - nowMs) / 86_400_000);
-}
-
-function daysLabel(days: number): string {
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""} ago`;
-  return `In ${days} day${days !== 1 ? "s" : ""}`;
-}
-
 export default function Home() {
   const [collections, setCollections] = useState<Collection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     fetch("/api/bins")
@@ -87,10 +28,33 @@ export default function Home() {
         return r.json();
       })
       .then(setCollections)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : String(e))
+      );
   }, []);
 
-  // Exclude food waste, compute days once, sort by next collection date ascending
+  // Recompute day labels at midnight and on tab focus to prevent stale "Today/Tomorrow"
+  useEffect(() => {
+    function refresh() {
+      setTick((t) => t + 1);
+    }
+    const now = new Date();
+    const nextMidnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      0,
+      0,
+      100
+    );
+    const timer = setTimeout(refresh, nextMidnight.getTime() - now.getTime());
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [tick]);
+
   const displayCollections: DisplayCollection[] | null =
     collections
       ?.filter((c) => c.type !== "food")
@@ -104,11 +68,9 @@ export default function Home() {
         return da - db;
       }) ?? null;
 
-  // displayCollections is already sorted, so the next upcoming is the first with days >= 0
   const nextIndex =
     displayCollections?.findIndex((c) => c.days != null && c.days >= 0) ?? -1;
 
-  // Reminder banner: check all collections (including food) for today/tomorrow
   const minDays =
     collections
       ?.filter((c) => c.nextCollection)
@@ -118,112 +80,114 @@ export default function Home() {
 
   const banner =
     minDays === 0
-      ? { text: "Put out your bins this morning!", bg: "bg-red-500" }
+      ? { text: "Put out your bins this morning!", classes: "bg-red-600 text-white" }
       : minDays === 1
-      ? { text: "Put out your bins tonight!", bg: "bg-amber-500" }
+      ? {
+          text: "Put out your bins tonight!",
+          classes: "bg-amber-100 text-amber-950 border-b border-amber-300",
+        }
       : null;
 
-  // Week type: whichever fortnightly bin is coming up soonest (list is already sorted)
   const weekType = (() => {
     if (!displayCollections) return null;
     const fortnightly = displayCollections.find(
-      (c) => (c.type === "refuse" || c.type === "recycling") && c.days != null && c.days >= 0
+      (c) =>
+        (c.type === "refuse" || c.type === "recycling") &&
+        c.days != null &&
+        c.days >= 0
     );
     if (!fortnightly) return null;
     return fortnightly.type === "refuse" ? "Refuse week" : "Recycling week";
   })();
 
+  const foodMeta = BIN_META.food;
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
-      {/* Reminder banner */}
-      {banner && (
-        <div className={`${banner.bg} text-white text-center text-sm font-semibold py-2.5 px-4`}>
-          {banner.text}
-        </div>
-      )}
+      {/* Fixed-height wrapper prevents layout shift when banner mounts/unmounts */}
+      <div className="min-h-[44px]">
+        {banner && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`text-center text-sm font-semibold py-2.5 px-4 ${banner.classes}`}
+          >
+            {banner.text}
+          </div>
+        )}
+      </div>
 
       <header className="bg-white border-b border-slate-200 px-4 py-5 sm:px-8">
-        <div className="max-w-4xl mx-auto flex items-baseline justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Coleswood Road bin days
-            </h1>
-            {weekType && (
-              <p className="mt-1 text-sm font-medium text-slate-500">{weekType}</p>
-            )}
-          </div>
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Coleswood Road bin days
+          </h1>
+          {weekType && (
+            <p className="mt-1 text-sm font-medium text-slate-500">{weekType}</p>
+          )}
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto w-full px-4 py-8 sm:px-8 flex-1">
+      <main className="max-w-4xl mx-auto w-full px-4 py-8 sm:px-8 flex-1 min-h-[320px]">
         {error && (
           <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-red-700 text-sm">
-            {error}
+            Couldn't load collection dates. Check your connection or try again.
           </div>
         )}
 
         {!displayCollections && !error && (
-          <div className="flex items-center justify-center py-24">
+          <div className="flex items-center justify-center gap-3 py-24">
             <div
-              className="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-slate-700"
-              role="status"
-              aria-label="Loading bin collection data"
+              className="h-10 w-10 animate-spin motion-reduce:hidden rounded-full border-4 border-slate-300 border-t-slate-700"
+              aria-hidden="true"
             />
+            <p className="hidden motion-reduce:block text-sm text-slate-500">Loading…</p>
+            <span className="sr-only motion-reduce:hidden">
+              Loading bin collection data
+            </span>
           </div>
         )}
 
         {displayCollections && displayCollections.length === 0 && (
-          <p className="text-sm text-slate-500">No collections found.</p>
+          <p className="text-sm text-slate-500">
+            No upcoming collections found for this address.
+          </p>
         )}
 
         {displayCollections && displayCollections.length > 0 && (
           <>
-            <div className="flex flex-col gap-4">
+            <ul
+              role="list"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+            >
               {displayCollections.map((c, i) => {
-                const colours = COLOURS[c.type] ?? COLOURS.other;
                 const isNext = i === nextIndex;
-
                 return (
-                  <div
+                  <BinCard
                     key={c.serviceName}
-                    className={`relative rounded-2xl p-5 shadow-sm flex flex-col gap-3 ${colours.card} ${isNext ? "ring-4 ring-white/60" : ""}`}
-                  >
-                    {isNext && (
-                      <span
-                        className={`absolute top-4 right-4 rounded-full px-2.5 py-0.5 text-xs font-semibold ${colours.badge}`}
-                      >
-                        Next collection
-                      </span>
-                    )}
-
-                    <div className="flex items-center gap-2.5 pr-28">
-                      <span className={`h-3 w-3 rounded-full shrink-0 ${colours.dot}`} />
-                      <h2 className="font-semibold text-base leading-tight">{c.serviceName}</h2>
-                    </div>
-
-                    {c.nextCollection ? (
-                      <div>
-                        <p className="text-xl font-bold leading-snug">
-                          {formatDate(c.nextCollection)}
-                        </p>
-                        <p className="mt-0.5 text-sm font-medium opacity-80">
-                          {c.days != null ? daysLabel(c.days) : ""}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm opacity-70">No date available</p>
-                    )}
-
-                    {c.schedule && (
-                      <p className="text-xs opacity-70 mt-auto">{c.schedule}</p>
-                    )}
-                  </div>
+                    type={c.type}
+                    serviceName={c.serviceName}
+                    nextCollection={c.nextCollection}
+                    schedule={c.schedule}
+                    days={c.days}
+                    isNext={isNext}
+                    className={isNext ? "sm:col-span-2" : ""}
+                  />
                 );
               })}
-            </div>
+            </ul>
 
-            <p className="mt-6 text-sm text-slate-500">
-              🟠 Food waste caddy goes out every bin day.
+            <p className="mt-6 text-sm text-slate-600 flex items-center gap-1.5">
+              <span
+                className={`h-3 w-3 rounded-full shrink-0 ${foodMeta.dot}`}
+                aria-hidden="true"
+              />
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${foodMeta.chip}`}
+              >
+                {foodMeta.label}
+              </span>
+              caddy goes out every bin day.
             </p>
           </>
         )}

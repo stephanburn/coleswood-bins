@@ -1,4 +1,5 @@
 import { cacheLife } from "next/cache";
+import type { BinType } from "@/lib/bins";
 
 interface VeoliaServiceHeader {
   TaskType: string;
@@ -81,7 +82,7 @@ export async function GET() {
   return Response.json(collections);
 }
 
-function inferType(name: string): string {
+function inferType(name: string): BinType {
   const lower = name.toLowerCase();
   if (lower.includes("food")) return "food";
   if (lower.includes("garden")) return "garden";
