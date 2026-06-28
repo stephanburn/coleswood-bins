@@ -37,21 +37,6 @@ const COLOURS: Record<string, { card: string; badge: string; dot: string }> = {
   },
 };
 
-const MONTH_INDEX: Record<string, number> = {
-  January: 0, February: 1, March: 2, April: 3,
-  May: 4, June: 5, July: 6, August: 7,
-  September: 8, October: 9, November: 10, December: 11,
-};
-
-// Parses the Veolia date format: "Tuesday, 7 July 2026"
-function parseVeoliaDate(str: string): Date | null {
-  const m = str.match(/\w+,\s+(\d+)\s+(\w+)\s+(\d{4})/);
-  if (!m) return null;
-  const month = MONTH_INDEX[m[2]];
-  if (month === undefined) return null;
-  return new Date(parseInt(m[3], 10), month, parseInt(m[1], 10));
-}
-
 function londonDateParts(date: Date): { y: number; mo: number; d: number } {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/London",
@@ -64,10 +49,8 @@ function londonDateParts(date: Date): { y: number; mo: number; d: number } {
   return { y: get("year"), mo: get("month"), d: get("day") };
 }
 
-function formatDate(veoliaStr: string): string {
-  const d = parseVeoliaDate(veoliaStr);
-  if (!d) return veoliaStr;
-  return d.toLocaleDateString("en-GB", {
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", {
     timeZone: "Europe/London",
     weekday: "long",
     day: "numeric",
@@ -75,9 +58,9 @@ function formatDate(veoliaStr: string): string {
   });
 }
 
-function daysAway(veoliaStr: string): number | null {
-  const target = parseVeoliaDate(veoliaStr);
-  if (!target) return null;
+function daysAway(iso: string): number | null {
+  const target = new Date(iso);
+  if (isNaN(target.getTime())) return null;
   const now = new Date();
   const np = londonDateParts(now);
   const tp = londonDateParts(target);
