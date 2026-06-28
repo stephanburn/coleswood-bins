@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const UPRN = process.env.NEXT_PUBLIC_UPRN ?? "";
+const UPRN = process.env.NEXT_PUBLIC_UPRN || "100080830667";
 
 interface Collection {
   type: string;
