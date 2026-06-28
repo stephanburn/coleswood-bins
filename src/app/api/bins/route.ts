@@ -1,3 +1,4 @@
+import { cacheLife } from "next/cache";
 import { type NextRequest } from "next/server";
 
 interface VeoliaServiceHeader {
@@ -12,27 +13,62 @@ interface VeoliaService {
   ServiceHeaders: VeoliaServiceHeader[];
 }
 
+async function fetchVeoliaServices(uprn: string): Promise<VeoliaService[]> {
+  "use cache";
+  cacheLife("hours");
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(
+      "https://gis.stalbans.gov.uk/NoticeBoard9/VeoliaProxy.NoticeBoard.asmx/GetServicesByUprnAndNoticeBoard",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({ uprn, noticeBoard: "default" }),
+        signal: controller.signal,
+      }
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!upstream.ok) {
+    throw new Error(`Veolia API returned ${upstream.status}`);
+  }
+
+  const data: unknown = await upstream.json();
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !Array.isArray((data as Record<string, unknown>).d)
+  ) {
+    throw new Error("Unexpected response structure from Veolia API");
+  }
+
+  return (data as { d: VeoliaService[] }).d;
+}
+
 export async function GET(request: NextRequest) {
   const uprn = request.nextUrl.searchParams.get("uprn");
   if (!uprn) {
     return Response.json({ error: "uprn query parameter is required" }, { status: 400 });
   }
-
-  const upstream = await fetch(
-    "https://gis.stalbans.gov.uk/NoticeBoard9/VeoliaProxy.NoticeBoard.asmx/GetServicesByUprnAndNoticeBoard",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=UTF-8" },
-      body: JSON.stringify({ uprn, noticeBoard: "default" }),
-    }
-  );
-
-  if (!upstream.ok) {
-    return Response.json({ error: "Failed to fetch from Veolia API" }, { status: 502 });
+  if (!/^\d{1,20}$/.test(uprn)) {
+    return Response.json({ error: "Invalid uprn format" }, { status: 400 });
   }
 
-  const data = await upstream.json();
-  const services: VeoliaService[] = data.d ?? [];
+  let services: VeoliaService[];
+  try {
+    services = await fetchVeoliaServices(uprn);
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      return Response.json({ error: "Request timed out" }, { status: 504 });
+    }
+    return Response.json({ error: "Failed to fetch from Veolia API" }, { status: 502 });
+  }
 
   const collections = services.map((service) => {
     const header = service.ServiceHeaders?.[0];

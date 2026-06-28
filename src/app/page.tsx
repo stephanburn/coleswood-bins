@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const UPRN = "100080830667";
+const UPRN = process.env.NEXT_PUBLIC_UPRN ?? "";
 
 interface Collection {
   type: string;
@@ -10,6 +10,10 @@ interface Collection {
   nextCollection: string | null;
   lastCollection: string | null;
   schedule: string | null;
+}
+
+interface DisplayCollection extends Collection {
+  days: number | null;
 }
 
 const COLOURS: Record<string, { card: string; badge: string; dot: string }> = {
@@ -46,8 +50,9 @@ function formatDate(iso: string): string {
 function daysAway(iso: string): number {
   const now = new Date();
   const target = new Date(iso);
-  const diff = target.setHours(0, 0, 0, 0) - now.setHours(0, 0, 0, 0);
-  return Math.round(diff / 86_400_000);
+  now.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - now.getTime()) / 86_400_000);
 }
 
 function daysLabel(days: number): string {
@@ -68,29 +73,26 @@ export default function Home() {
         return r.json();
       })
       .then(setCollections)
-      .catch((e: Error) => setError(e.message));
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  // Exclude food waste from cards, sort by next collection date ascending
-  const displayCollections =
+  // Exclude food waste, compute days once, sort by next collection date ascending
+  const displayCollections: DisplayCollection[] | null =
     collections
       ?.filter((c) => c.type !== "food")
-      .slice()
+      .map((c) => ({
+        ...c,
+        days: c.nextCollection ? daysAway(c.nextCollection) : null,
+      }))
       .sort((a, b) => {
-        const da = a.nextCollection ? daysAway(a.nextCollection) : Infinity;
-        const db = b.nextCollection ? daysAway(b.nextCollection) : Infinity;
+        const da = a.days ?? Infinity;
+        const db = b.days ?? Infinity;
         return da - db;
       }) ?? null;
 
-  // Find the next upcoming non-food collection index (within displayCollections)
+  // displayCollections is already sorted, so the next upcoming is the first with days >= 0
   const nextIndex =
-    displayCollections
-      ?.map((c, i) => ({
-        i,
-        days: c.nextCollection ? daysAway(c.nextCollection) : Infinity,
-      }))
-      .filter(({ days }) => days >= 0)
-      .sort((a, b) => a.days - b.days)[0]?.i ?? -1;
+    displayCollections?.findIndex((c) => c.days != null && c.days >= 0) ?? -1;
 
   // Reminder banner: check all collections (including food) for today/tomorrow
   const minDays =
@@ -107,20 +109,18 @@ export default function Home() {
       ? { text: "Put out your bins tonight!", bg: "bg-amber-500" }
       : null;
 
-  // Week type: whichever fortnightly bin (refuse or recycling) is coming up next
+  // Week type: whichever fortnightly bin is coming up soonest (list is already sorted)
   const weekType = (() => {
     if (!displayCollections) return null;
-    const fortnightly = displayCollections
-      .filter((c) => (c.type === "refuse" || c.type === "recycling") && c.nextCollection)
-      .map((c) => ({ type: c.type, days: daysAway(c.nextCollection!) }))
-      .filter(({ days }) => days >= 0)
-      .sort((a, b) => a.days - b.days)[0];
+    const fortnightly = displayCollections.find(
+      (c) => (c.type === "refuse" || c.type === "recycling") && c.days != null && c.days >= 0
+    );
     if (!fortnightly) return null;
     return fortnightly.type === "refuse" ? "Refuse week" : "Recycling week";
   })();
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col" style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}>
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
       {/* Reminder banner */}
       {banner && (
         <div className={`${banner.bg} text-white text-center text-sm font-semibold py-2.5 px-4`}>
@@ -150,7 +150,11 @@ export default function Home() {
 
         {!displayCollections && !error && (
           <div className="flex items-center justify-center py-24">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-slate-700" />
+            <div
+              className="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-slate-700"
+              role="status"
+              aria-label="Loading bin collection data"
+            />
           </div>
         )}
 
@@ -160,7 +164,6 @@ export default function Home() {
               {displayCollections.map((c, i) => {
                 const colours = COLOURS[c.type] ?? COLOURS.other;
                 const isNext = i === nextIndex;
-                const days = c.nextCollection ? daysAway(c.nextCollection) : null;
 
                 return (
                   <div
@@ -186,7 +189,7 @@ export default function Home() {
                           {formatDate(c.nextCollection)}
                         </p>
                         <p className="mt-0.5 text-sm font-medium opacity-80">
-                          {daysLabel(days!)}
+                          {daysLabel(c.days!)}
                         </p>
                       </div>
                     ) : (
