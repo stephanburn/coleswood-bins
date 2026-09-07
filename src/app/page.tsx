@@ -71,6 +71,13 @@ export default function Home() {
   const nextIndex =
     displayCollections?.findIndex((c) => c.days != null && c.days >= 0) ?? -1;
 
+  // Every date is in the past, so the upstream feed is stale. Say so rather
+  // than presenting old collection dates as if they were upcoming.
+  const isStale =
+    displayCollections != null &&
+    displayCollections.length > 0 &&
+    nextIndex === -1;
+
   const minDays =
     collections
       ?.filter((c) => c.nextCollection)
@@ -152,6 +159,16 @@ export default function Home() {
           <p className="text-sm text-slate-500">
             No upcoming collections found for this address.
           </p>
+        )}
+
+        {isStale && (
+          <div
+            role="status"
+            className="mb-4 rounded-xl bg-amber-50 border border-amber-200 p-4 text-amber-900 text-sm"
+          >
+            These dates are out of date — the council&rsquo;s feed hasn&rsquo;t
+            been updated. Check the St Albans website for your next collection.
+          </div>
         )}
 
         {displayCollections && displayCollections.length > 0 && (

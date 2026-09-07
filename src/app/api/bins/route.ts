@@ -1,5 +1,7 @@
 import { cacheLife } from "next/cache";
+import { connection } from "next/server";
 import type { BinType } from "@/lib/bins";
+import { londonDateParts } from "@/lib/date";
 
 interface VeoliaServiceHeader {
   TaskType: string;
@@ -13,9 +15,15 @@ interface VeoliaService {
   ServiceHeaders: VeoliaServiceHeader[];
 }
 
-async function fetchVeoliaServices(uprn: string): Promise<VeoliaService[]> {
+// `day` is unused in the body but forms part of the cache key, so a cached
+// response can never be reused across London days.
+async function fetchVeoliaServices(
+  uprn: string,
+  day: string
+): Promise<VeoliaService[]> {
   "use cache";
   cacheLife("hours");
+  void day;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -51,14 +59,21 @@ async function fetchVeoliaServices(uprn: string): Promise<VeoliaService[]> {
 }
 
 export async function GET() {
+  // Opt out of build-time prerendering. Without this the collection dates are
+  // baked into the static payload at build time and served indefinitely.
+  await connection();
+
   const uprn = process.env.NEXT_PUBLIC_UPRN ?? "100080830667";
   if (!/^\d{1,20}$/.test(uprn)) {
     return Response.json({ error: "Server misconfigured" }, { status: 500 });
   }
 
+  const { y, mo, d } = londonDateParts(new Date());
+  const day = `${y}-${mo}-${d}`;
+
   let services: VeoliaService[];
   try {
-    services = await fetchVeoliaServices(uprn);
+    services = await fetchVeoliaServices(uprn, day);
   } catch (e) {
     console.error("Failed to fetch Veolia data for UPRN", uprn, e);
     if (e != null && (e as { name?: unknown }).name === "AbortError") {
