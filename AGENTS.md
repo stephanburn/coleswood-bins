@@ -13,7 +13,7 @@ A single-page web app that shows the next bin collection dates for one street (C
 - Deployed on Vercel. Live at coleswood-bins.vercel.app.
 
 ## Key files
-- `src/app/api/bins/route.ts` — server-side proxy. GET `?uprn=` → calls VeoliaProxy, infers bin `type` from `ServiceName`, returns `{type, serviceName, nextCollection, lastCollection, schedule}[]`. Has a 5s abort timeout, UPRN regex validation, and `"use cache"` + `cacheLife("hours")`.
+- `src/app/api/bins/route.ts` — server-side proxy. Takes no parameters: `GET` reads the UPRN from `NEXT_PUBLIC_UPRN` (falling back to the hardcoded Coleswood Road value), calls VeoliaProxy, infers bin `type` from `ServiceName`, and returns `{type, serviceName, nextCollection, lastCollection, schedule}[]`. Has a 5s abort timeout, UPRN regex validation, `await connection()`, and `"use cache"` + `cacheLife("hours")` keyed by UPRN and current London date.
 - `src/app/page.tsx` — client component. Fetches `/api/bins`, excludes food waste from the cards, sorts by next date, highlights the next collection, and shows a "put your bins out" banner when one is due today/tomorrow.
 - `next.config.ts` — `cacheComponents: true` plus security headers (nosniff, frame DENY, referrer policy).
 - `scripts/test-api.ts` — standalone probe of the upstream API; run with `npx tsx scripts/test-api.ts`.
@@ -21,5 +21,6 @@ A single-page web app that shows the next bin collection dates for one street (C
 ## Conventions / gotchas
 - The street's UPRN is configured via `NEXT_PUBLIC_UPRN` in `.env.local` (currently `100080830667`). The app is single-address; there is no postcode search yet.
 - Food waste is intentionally NOT shown as a card — it goes out every collection, surfaced as a one-line note instead.
+- **Time-sensitive routes must not be prerendered.** With `cacheComponents` enabled, a `GET` route handler that touches no request-time API is baked into a static payload at build time and served indefinitely — Vercel's CDN keeps returning the build-time body and only revalidates in the background, so `cacheLife`'s `expire` is no protection. This froze `/api/bins` on its 28 June 2026 build for 71 days (fixed in `a3172aa`). `/api/bins` therefore calls `await connection()` and passes the current Europe/London date into the `"use cache"` helper as a cache key. After changing a data route, check the `next build` route table: a `○` on it means the payload is frozen; it must be `ƒ`.
 - No test framework is set up. The only verification script is `scripts/test-api.ts`.
 - Per the root CLAUDE.md, run a type check after editing TS. Use the project-local binary (`./node_modules/.bin/tsc --noEmit`) — a bare `npx tsc` pulls an unrelated package. Note `node_modules` may not be installed; run `npm install` first.
