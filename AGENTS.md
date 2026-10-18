@@ -34,3 +34,8 @@ npm run lint
 - Use the project-local `tsc`; a bare `npx tsc` pulls an unrelated package. Run `npm ci` first if `node_modules` is missing.
 - No test framework is set up. `npx tsx scripts/test-api.ts` probes the live upstream API (network required).
 - After changing a data route, also run `npm run build` and check the route table (see the prerender gotcha above).
+
+## Session sync (local and cloud)
+Work on this repo happens both on Stephan's laptop and in Claude Code cloud sessions, and each side only sees what is pushed to GitHub. Cloud sessions start from the default branch, so unmerged PR branches and unpushed local commits are invisible to them.
+- **At the start of a session:** run `git fetch`, then check whether the current branch is behind or ahead of its remote, whether the working tree has uncommitted changes, and whether there are open PRs (`gh pr list`) from other sessions. Report anything out of line before changing code. (Local sessions get this from a SessionStart hook; cloud sessions must do it themselves.)
+- **Before ending a session:** commit and push the work, or open a PR, so the other side can see it. If anything is left uncommitted or unpushed, say so.
