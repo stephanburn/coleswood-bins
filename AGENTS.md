@@ -22,8 +22,18 @@ A single-page web app that shows the next bin collection dates for one street (C
 - The street's UPRN is configured via `NEXT_PUBLIC_UPRN` in `.env.local` (currently `100080830667`). The app is single-address; there is no postcode search yet.
 - Food waste is intentionally NOT shown as a card — it goes out every collection, surfaced as a one-line note instead.
 - **Time-sensitive routes must not be prerendered.** With `cacheComponents` enabled, a `GET` route handler that touches no request-time API is baked into a static payload at build time and served indefinitely — Vercel's CDN keeps returning the build-time body and only revalidates in the background, so `cacheLife`'s `expire` is no protection. This froze `/api/bins` on its 28 June 2026 build for 71 days (fixed in `a3172aa`). `/api/bins` therefore calls `await connection()` and passes the current Europe/London date into the `"use cache"` helper as a cache key. After changing a data route, check the `next build` route table: a `○` on it means the payload is frozen; it must be `ƒ`.
-- No test framework is set up. The only verification script is `scripts/test-api.ts`.
-- Per the root CLAUDE.md, run a type check after editing TS. Use the project-local binary (`./node_modules/.bin/tsc --noEmit`) — a bare `npx tsc` pulls an unrelated package. Note `node_modules` may not be installed; run `npm install` first.
+
+## Verify
+Run before and after changes; all must pass on `main`:
+
+```bash
+./node_modules/.bin/tsc --noEmit
+npm run lint
+```
+
+- Use the project-local `tsc`; a bare `npx tsc` pulls an unrelated package. Run `npm ci` first if `node_modules` is missing.
+- No test framework is set up. `npx tsx scripts/test-api.ts` probes the live upstream API (network required).
+- After changing a data route, also run `npm run build` and check the route table (see the prerender gotcha above).
 
 ## Session sync (local and cloud)
 Work on this repo happens both on Stephan's laptop and in Claude Code cloud sessions, and each side only sees what is pushed to GitHub. Cloud sessions start from the default branch, so unmerged PR branches and unpushed local commits are invisible to them.
