@@ -17,6 +17,10 @@ interface VeoliaService {
 
 // `day` is unused in the body but forms part of the cache key, so a cached
 // response can never be reused across London days.
+//
+// Errors are logged here rather than by the caller: in production, an error
+// thrown out of a "use cache" function reaches the caller redacted to a
+// generic "Server Components render" message, losing the real cause.
 async function fetchVeoliaServices(
   uprn: string,
   day: string
@@ -53,6 +57,9 @@ async function fetchVeoliaServices(
     }
 
     return (data as { d: VeoliaService[] }).d;
+  } catch (e) {
+    console.error("Failed to fetch Veolia data for UPRN", uprn, e);
+    throw e;
   } finally {
     clearTimeout(timeoutId);
   }
@@ -74,11 +81,9 @@ export async function GET() {
   let services: VeoliaService[];
   try {
     services = await fetchVeoliaServices(uprn, day);
-  } catch (e) {
-    console.error("Failed to fetch Veolia data for UPRN", uprn, e);
-    if (e != null && (e as { name?: unknown }).name === "AbortError") {
-      return Response.json({ error: "Request timed out" }, { status: 504 });
-    }
+  } catch {
+    // Already logged with the real cause inside fetchVeoliaServices; the error
+    // seen here is redacted, so timeouts can't be told apart from other failures.
     return Response.json({ error: "Failed to fetch from Veolia API" }, { status: 502 });
   }
 
