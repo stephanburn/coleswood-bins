@@ -13,8 +13,9 @@ A single-page web app that shows the next bin collection dates for one street (C
 - Deployed on Vercel. Live at coleswood-bins.vercel.app.
 
 ## Key files
-- `src/app/api/bins/route.ts` — server-side proxy. Takes no parameters: `GET` reads the UPRN from `NEXT_PUBLIC_UPRN` (falling back to the hardcoded Coleswood Road value), calls VeoliaProxy, infers bin `type` from `ServiceName`, and returns `{type, serviceName, nextCollection, lastCollection, schedule}[]`. Has a 5s abort timeout, UPRN regex validation, `await connection()`, and `"use cache"` + `cacheLife("hours")` keyed by UPRN and current London date.
+- `src/app/api/bins/route.ts` — server-side proxy. Takes no parameters: `GET` reads the UPRN from `NEXT_PUBLIC_UPRN` (falling back to the hardcoded Coleswood Road value), calls VeoliaProxy, infers bin `type` from `ServiceName`, and returns `{type, serviceName, nextCollection, lastCollection, schedule}[]`. Has a 10s abort timeout, UPRN regex validation, `await connection()`, and `"use cache"` + `cacheLife("hours")` keyed by UPRN and current London date.
 - `src/app/page.tsx` — client component. Fetches `/api/bins`, excludes food waste from the cards, sorts by next date, highlights the next collection, and shows a "put your bins out" banner when one is due today/tomorrow.
+- `vercel.json` — pins functions to London (`lhr1`), next to the council's server. Added Oct 2026, when every request to VeoliaProxy from Vercel's default region hit the then-5s abort timeout while the council's own site worked.
 - `next.config.ts` — `cacheComponents: true` plus security headers (nosniff, frame DENY, referrer policy).
 - `scripts/test-api.ts` — standalone probe of the upstream API; run with `npx tsx scripts/test-api.ts`.
 
