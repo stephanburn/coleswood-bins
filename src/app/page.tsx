@@ -138,7 +138,7 @@ export default function Home() {
       <main className="max-w-4xl mx-auto w-full px-4 py-8 sm:px-8 flex-1 min-h-[320px]">
         {error && (
           <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-red-700 text-sm">
-            Couldn't load collection dates. Check your connection or try again.
+            Couldn&rsquo;t load collection dates. Check your connection or try again.
           </div>
         )}
 
